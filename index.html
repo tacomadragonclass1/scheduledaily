@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Classroom Schedule</title>
+
+<!-- Google Fonts: Fraunces for display, Manrope for body. Falls back gracefully. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<!-- Preload schedule images so transitions are instant once the day is running. -->
+<link rel="preload" as="image" href="images/block1.jpg">
+<link rel="preload" as="image" href="images/block2.jpg">
+<link rel="preload" as="image" href="images/block3.jpg">
+
+<style>
+/* ================================================================
+   THEME TOKENS
+   Warm classroom palette: deep indigo sidebar, cream text,
+   soft amber accent. High contrast for visibility from across a room.
+   ================================================================ */
+:root {
+  --bg-panel: #1a2238;            /* deep indigo sidebar background */
+  --bg-image: #0e1626;            /* dark behind image, hides flash on swap */
+  --text-primary: #FFF8E7;        /* warm cream */
+  --text-muted: #b8c0d6;          /* desaturated for secondary info */
+  --accent: #ffb84d;              /* warm amber (countdown highlight) */
+  --accent-hot: #ff6b6b;          /* coral (last-5-min warning) */
+  --divider: rgba(255, 248, 231, 0.10);
+
+  --sidebar-w: 25%;
+  --image-w: 75%;
+
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* ================================================================
+   RESET + BASE
+   ================================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg-image);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+/* ================================================================
+   APP LAYOUT
+   ================================================================ */
+#app {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* ---------- IMAGE COLUMN (left, 75%) ---------- */
+#image-stage {
+  position: relative;
+  width: var(--image-w);
+  height: 100%;
+  background: var(--bg-image);
+  overflow: hidden;
+}
+/* Two stacked <img>s for cross-fade. The active one is on top. */
+.stage-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 600ms ease-in-out;
+}
+.stage-img.active { opacity: 1; }
+
+/* "No active block" overlay */
+#no-block-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a2238 0%, #2d3454 100%);
+  flex-direction: column;
+  gap: 1rem;
+  text-align: center;
+  padding: 2rem;
+}
+#no-block-overlay.show { display: flex; }
+#no-block-overlay .hero {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(3rem, 8vw, 7rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+#no-block-overlay .sub {
+  font-size: clamp(1rem, 2vw, 1.5rem);
+  color: var(--text-muted);
+  max-width: 60ch;
+}
+
+/* Preview inset (next block, bottom-right of stage, last 5 minutes) */
+#preview-inset {
+  position: absolute;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  width: clamp(180px, 22%, 320px);
+  aspect-ratio: 5 / 4;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.55),
+    0 0 0 4px var(--accent),
+    0 0 0 6px rgba(0,0,0,0.4);
+  background: #000;
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+  transition: opacity 300ms ease, transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+  z-index: 5;
+}
+#preview-inset.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+#preview-inset img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+#preview-inset .preview-label {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.7), rgba(0,0,0,0));
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+#preview-inset .preview-title {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 0.5rem 0.75rem 0.6rem;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+/* ---------- SIDEBAR (right, 25%) ---------- */
+#sidebar {
+  width: var(--sidebar-w);
+  height: 100%;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  padding: clamp(1.5rem, 2.5vw, 2.5rem) clamp(1.5rem, 2vw, 2rem);
+  position: relative;
+  border-left: 1px solid var(--divider);
+}
+
+/* Day-of-week label at top */
+.day-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+/* Block title — the headline of the sidebar */
+#block-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2rem, 3.6vw, 4rem);
+  line-height: 1.0;
+  letter-spacing: -0.02em;
+  margin: 0 0 1.5rem 0;
+  /* Allow long names to wrap nicely */
+  word-break: break-word;
+  hyphens: auto;
+  /* Reserve a little space to avoid layout jump on transitions */
+  min-height: 2em;
+}
+
+/* Divider between title block and time block */
+.divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 0.5rem 0 1.5rem;
+}
+
+/* Section label */
+.section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+/* Digital clock — tabular numbers so digits don't jitter */
+#clock {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: clamp(2rem, 3.4vw, 3.4rem);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  margin-bottom: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Countdown — the prime focus, biggest text */
+#countdown {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: clamp(2.5rem, 5vw, 5.5rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  transition: color 400ms ease;
+}
+#countdown.hot { color: var(--accent-hot); }
+
+#countdown-label {
+  margin-top: 0.4rem;
+}
+
+/* Spacer pushes controls to the bottom */
+.spacer { flex: 1 1 auto; }
+
+/* ---------- BOTTOM CONTROLS ---------- */
+.controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+.icon-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.65rem 0.5rem;
+  background: rgba(255, 248, 231, 0.06);
+  border: 1px solid rgba(255, 248, 231, 0.15);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: background 150ms ease, border-color 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.icon-btn:hover {
+  background: rgba(255, 248, 231, 0.12);
+  border-color: rgba(255, 248, 231, 0.30);
+}
+.icon-btn:active { transform: translateY(1px); }
+.icon-btn .ico { font-size: 1.05rem; line-height: 1; }
+
+/* Time-source status indicator — tiny, unobtrusive */
+.sync-status {
+  margin-top: 0.85rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.sync-status .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #6ee7b7; /* green = network synced */
+  box-shadow: 0 0 6px rgba(110, 231, 183, 0.5);
+}
+.sync-status.local .dot { background: #fbbf24; box-shadow: 0 0 6px rgba(251, 191, 36, 0.5); }
+
+/* Sound prime hint */
+#sound-hint {
+  position: fixed;
+  top: 1rem; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(26, 34, 56, 0.95);
+  color: var(--text-primary);
+  padding: 0.6rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid rgba(255, 248, 231, 0.2);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  z-index: 100;
+  cursor: pointer;
+  display: none;
+}
+#sound-hint.show { display: block; }
+
+/* ================================================================
+   DEVELOPER PANEL
+   Hidden by default. Toggle with button or Ctrl+Shift+D.
+   ================================================================ */
+#dev-panel {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 22, 38, 0.92);
+  backdrop-filter: blur(8px);
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  overflow: auto;
+}
+#dev-panel.show { display: flex; }
+
+.dev-card {
+  background: #1a2238;
+  border: 1px solid var(--divider);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 980px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.dev-header {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--divider);
+}
+.dev-header h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  margin: 0;
+}
+.dev-header .helper {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+}
+.dev-header .row { display: flex; gap: 0.5rem; }
+.dev-btn {
+  padding: 0.5rem 0.9rem;
+  background: rgba(255, 248, 231, 0.08);
+  border: 1px solid rgba(255, 248, 231, 0.18);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dev-btn:hover { background: rgba(255, 248, 231, 0.14); }
+.dev-btn.primary {
+  background: var(--accent);
+  color: #1a2238;
+  border-color: var(--accent);
+}
+.dev-btn.primary:hover { background: #ffc873; }
+.dev-btn.danger {
+  background: transparent;
+  color: var(--accent-hot);
+  border-color: rgba(255, 107, 107, 0.4);
+}
+.dev-btn.danger:hover { background: rgba(255, 107, 107, 0.1); }
+
+.dev-body {
+  padding: 1rem 1.5rem 1.5rem;
+  overflow: auto;
+  flex: 1;
+}
+
+/* Schedule rows */
+.dev-table-head {
+  display: grid;
+  grid-template-columns: 28px 2fr 90px 90px 110px 1fr 28px;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: 0.4rem;
+}
+.dev-row {
+  display: grid;
+  grid-template-columns: 28px 2fr 90px 90px 110px 1fr 28px;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 8px;
+  align-items: center;
+  background: rgba(255, 248, 231, 0.03);
+  margin-bottom: 0.35rem;
+  transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
+}
+.dev-row:hover { background: rgba(255, 248, 231, 0.06); }
+.dev-row.dragging { opacity: 0.4; }
+.dev-row.drop-target { background: rgba(255, 184, 77, 0.18); }
+
+.dev-row .handle {
+  cursor: grab;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  user-select: none;
+}
+.dev-row .handle:active { cursor: grabbing; }
+
+.dev-row input[type="text"],
+.dev-row input[type="time"],
+.dev-row select {
+  width: 100%;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255, 248, 231, 0.15);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+.dev-row input:focus,
+.dev-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Day-of-week pill checkboxes */
+.day-pills {
+  display: flex;
+  gap: 2px;
+}
+.day-pill {
+  flex: 1;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.4rem 0;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255, 248, 231, 0.15);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  letter-spacing: 0.05em;
+}
+.day-pill:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.day-pill:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+.day-pill.on {
+  background: var(--accent);
+  color: #1a2238;
+  border-color: var(--accent);
+}
+
+.dev-row .delete-btn {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.dev-row .delete-btn:hover { color: var(--accent-hot); background: rgba(255, 107, 107, 0.1); }
+
+.dev-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--divider);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.dev-footer .info {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* Print/responsive: keep it usable on smaller screens but main UX is large display */
+@media (max-width: 720px) {
+  #app { flex-direction: column; }
+  #image-stage { width: 100%; height: 50vh; }
+  #sidebar { width: 100%; height: 50vh; }
+  .dev-table-head, .dev-row {
+    grid-template-columns: 24px 1fr 70px 70px;
+    grid-template-areas:
+      "h title start end"
+      "h days  days  img"
+      "h del   del   del";
+  }
+  .dev-row .handle { grid-area: h; }
+}
+</style>
+</head>
+<body>
+
+<!-- =============================================================
+     MAIN APP
+     ============================================================= -->
+<div id="app">
+
+  <!-- LEFT: full-bleed image stage -->
+  <div id="image-stage">
+    <!-- Two <img>s used as cross-fade layers; we toggle which is active. -->
+    <img id="img-a" class="stage-img" alt="" />
+    <img id="img-b" class="stage-img" alt="" />
+
+    <!-- Shown when no schedule block matches the current PT time -->
+    <div id="no-block-overlay">
+      <div class="hero">No Active Block</div>
+      <div class="sub" id="no-block-sub">The schedule isn't running right now.</div>
+    </div>
+
+    <!-- Inset preview of the next block (visible during last 5 minutes) -->
+    <div id="preview-inset">
+      <img id="preview-img" alt="" />
+      <div class="preview-label">Up Next · 5 min</div>
+      <div class="preview-title" id="preview-title">—</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: sidebar with title, clock, countdown, controls -->
+  <aside id="sidebar">
+    <div class="day-label" id="day-label">—</div>
+    <h1 id="block-title">Loading…</h1>
+
+    <div class="divider"></div>
+
+    <div class="section-label">Time of Day · Pacific</div>
+    <div id="clock">--:--:-- --</div>
+
+    <div class="section-label" id="countdown-label">Time Remaining</div>
+    <div id="countdown">--:--</div>
+
+    <div class="spacer"></div>
+
+    <div class="controls">
+      <button class="icon-btn" id="btn-fullscreen" title="Toggle Fullscreen">
+        <span class="ico">⛶</span><span>Fullscreen</span>
+      </button>
+      <button class="icon-btn" id="btn-dev" title="Developer Panel (Ctrl+Shift+D)">
+        <span class="ico">⚙</span><span>Edit</span>
+      </button>
+    </div>
+
+    <div class="sync-status" id="sync-status">
+      <span class="dot"></span>
+      <span id="sync-text">Syncing time…</span>
+    </div>
+  </aside>
+</div>
+
+<!-- One-time hint shown when audio playback needs a user gesture -->
+<div id="sound-hint">🔔 Click anywhere to enable chimes</div>
+
+<!-- =============================================================
+     DEVELOPER PANEL (hidden by default)
+     ============================================================= -->
+<div id="dev-panel">
+  <div class="dev-card">
+    <div class="dev-header">
+      <div>
+        <h2>Schedule Editor</h2>
+        <div class="helper">Drag rows to reorder. Edits save automatically. Toggle: <strong>Ctrl+Shift+D</strong></div>
+      </div>
+      <div class="row">
+        <button class="dev-btn" id="dev-add">+ Add Block</button>
+        <button class="dev-btn danger" id="dev-reset">Reset to Defaults</button>
+        <button class="dev-btn primary" id="dev-close">Done</button>
+      </div>
+    </div>
+
+    <div class="dev-body">
+      <div class="dev-table-head">
+        <div></div>
+        <div>Title</div>
+        <div>Start</div>
+        <div>End</div>
+        <div>Image</div>
+        <div>Days (Mon–Sun)</div>
+        <div></div>
+      </div>
+      <div id="dev-rows"></div>
+    </div>
+
+    <div class="dev-footer">
+      <div class="info">
+        Schedule data is stored locally in this browser. Times use the
+        <strong>America/Los_Angeles</strong> timezone.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Preloaded chime; src is resolved relative so it works on GitHub Pages. -->
+<audio id="chime" src="audio/chime.wav" preload="auto"></audio>
+
+<script>
+/* ====================================================================
+   CLASSROOM SCHEDULE — main script
+   --------------------------------------------------------------------
+   Architecture summary:
+     1. Default schedule data (loaded if localStorage is empty).
+     2. Time sync: try a network time API; fall back to local clock.
+        All math is done in Pacific Time via Intl.DateTimeFormat.
+     3. Tick loop runs every 250ms — updates clock and finds the
+        active schedule block based on minute-of-day in PT.
+     4. UI updates: image cross-fade, title, countdown.
+     5. Five-minute warning: shows preview inset and plays the chime
+        once per current-block instance.
+     6. Developer panel: edit/reorder/persist schedule in localStorage.
+     7. Fullscreen: standard Fullscreen API toggle.
+   ==================================================================== */
+
+
+/* --------------------------------------------------------------
+   1. DEFAULT SCHEDULE
+   Days: 0 = Sunday … 6 = Saturday (matches JS Date#getDay).
+   "image" is a relative path the GitHub Pages site can serve.
+   -------------------------------------------------------------- */
+const DEFAULT_SCHEDULE = [
+  { id: 1,  title: "Breakfast and Entry Task",   start: "08:35", end: "09:10", image: "images/block1.jpg",  days: [1,2,3,4,5] },
+  { id: 2,  title: "Phonics",                    start: "09:10", end: "09:40", image: "images/block2.jpg",  days: [1,2,3,4,5] },
+  { id: 3,  title: "Close Reading",              start: "09:40", end: "10:20", image: "images/block3.jpg",  days: [1,2,3,4,5] },
+  { id: 4,  title: "PE",                         start: "10:20", end: "10:55", image: "images/block4.jpg",  days: [2,4]       },
+  { id: 5,  title: "Music",                      start: "10:20", end: "10:55", image: "images/block5.jpg",  days: [1,3]       },
+  { id: 6,  title: "Library",                    start: "10:20", end: "10:55", image: "images/block6.jpg",  days: [5]         },
+  { id: 7,  title: "Lunch Recess",               start: "10:55", end: "11:45", image: "images/block7.jpg",  days: [1,2,3,4,5] },
+  { id: 8,  title: "Science and Social Studies", start: "11:45", end: "12:20", image: "images/block8.jpg",  days: [1,2,3,4,5] },
+  { id: 9,  title: "Math",                       start: "12:20", end: "13:20", image: "images/block9.jpg",  days: [1,2,3,4,5] },
+  { id: 10, title: "Activity Centers",           start: "13:20", end: "13:55", image: "images/block10.jpg", days: [1,2,3,4,5] },
+  { id: 11, title: "Snack Time",                 start: "13:55", end: "14:15", image: "images/block11.jpg", days: [1,2,3,4,5] },
+  { id: 12, title: "2nd Recess",                 start: "14:15", end: "14:40", image: "images/block12.jpg", days: [1,2,3,4,5] },
+  { id: 13, title: "End of Day",                 start: "14:40", end: "15:05", image: "images/block13.jpg", days: [1,2,3,4,5] },
+];
+
+const AVAILABLE_IMAGES = Array.from({length: 13}, (_, i) => `images/block${i+1}.jpg`);
+const STORAGE_KEY = "classroomScheduleV1";
+
+/* --------------------------------------------------------------
+   2. STATE
+   -------------------------------------------------------------- */
+let schedule = loadSchedule();
+let timeOffsetMs = 0;            // serverTime - localTime; 0 if not synced
+let networkSynced = false;       // whether we have a confirmed network time
+let lastBlockId = null;          // last shown block (for cross-fade detection)
+let chimedForBlockId = null;     // which block already triggered the 5-min chime
+let activeImgEl = null;          // currently-visible <img> layer
+let audioPrimed = false;         // has audio been unlocked by a user gesture?
+
+/* --------------------------------------------------------------
+   3. SCHEDULE PERSISTENCE
+   -------------------------------------------------------------- */
+function loadSchedule() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return structuredClone(DEFAULT_SCHEDULE);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return structuredClone(DEFAULT_SCHEDULE);
+    // Light validation: each block must have title/start/end/image/days.
+    for (const b of parsed) {
+      if (typeof b.title !== "string" ||
+          typeof b.start !== "string" ||
+          typeof b.end !== "string" ||
+          typeof b.image !== "string" ||
+          !Array.isArray(b.days)) {
+        return structuredClone(DEFAULT_SCHEDULE);
+      }
+    }
+    return parsed;
+  } catch (err) {
+    console.warn("Failed to load schedule from storage; using defaults.", err);
+    return structuredClone(DEFAULT_SCHEDULE);
+  }
+}
+function saveSchedule() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(schedule)); }
+  catch (err) { console.warn("Failed to save schedule:", err); }
+}
+function resetSchedule() {
+  schedule = structuredClone(DEFAULT_SCHEDULE);
+  saveSchedule();
+  renderDevRows();
+  // Force an immediate UI re-render
+  lastBlockId = null;
+  tick();
+}
+
+/* --------------------------------------------------------------
+   4. TIME — Pacific Time, with optional network sync
+   --------------------------------------------------------------
+   Strategy:
+     - We treat "now" as `Date.now() + timeOffsetMs`.
+     - timeOffsetMs is set after a successful fetch from a public
+       time API. If every API fails, the offset stays 0 and we
+       use the local clock — still correct for users with proper
+       system time. This protects against a misconfigured laptop
+       clock without breaking offline use.
+     - All schedule comparisons happen in PT, derived via
+       Intl.DateTimeFormat regardless of where the device is.
+   -------------------------------------------------------------- */
+
+// Returns the corrected Date "now"
+function getNow() {
+  return new Date(Date.now() + timeOffsetMs);
+}
+
+// PT formatter (cached). Yields parts for a given Date.
+const PT_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit",
+  hour12: false, weekday: "short"
+});
+const WEEKDAY_INDEX = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+
+// Returns { year, month, day, hour, minute, second, weekday (0–6), minuteOfDay }.
+function getPTComponents(date) {
+  const parts = PT_FORMATTER.formatToParts(date);
+  const o = {};
+  for (const p of parts) o[p.type] = p.value;
+  // hour can be "24" in en-US 24h formatting at midnight; normalize.
+  let h = parseInt(o.hour, 10); if (h === 24) h = 0;
+  return {
+    year: parseInt(o.year, 10),
+    month: parseInt(o.month, 10),
+    day: parseInt(o.day, 10),
+    hour: h,
+    minute: parseInt(o.minute, 10),
+    second: parseInt(o.second, 10),
+    weekday: WEEKDAY_INDEX[o.weekday] ?? new Date(date).getDay(),
+    minuteOfDay: h * 60 + parseInt(o.minute, 10),
+    secondOfDay: h * 3600 + parseInt(o.minute, 10) * 60 + parseInt(o.second, 10)
+  };
+}
+
+// Convert "HH:MM" → minute-of-day integer.
+function hhmmToMin(s) {
+  const [h, m] = s.split(":").map(n => parseInt(n, 10));
+  return h * 60 + m;
+}
+
+// Try a couple of public, CORS-friendly time sources. Each returns a Unix
+// timestamp in milliseconds. We compute the offset between server time and
+// our local clock; if the local clock is wrong, every subsequent tick is
+// corrected. If every source fails, we silently fall back to the local clock.
+async function syncNetworkTime() {
+  const sources = [
+    // Cloudflare trace — plain text "key=value" lines, includes `ts=<unix.ms>`.
+    // Reliable, fast, no JSON parsing surprises.
+    async () => {
+      const res = await fetch("https://www.cloudflare.com/cdn-cgi/trace", { cache: "no-store" });
+      const txt = await res.text();
+      const match = txt.match(/ts=([0-9.]+)/);
+      if (!match) throw new Error("no ts in cf trace");
+      return Math.round(parseFloat(match[1]) * 1000);
+    },
+    // worldtimeapi — JSON with `utc_datetime` ISO 8601 string.
+    async () => {
+      const res = await fetch("https://worldtimeapi.org/api/timezone/Etc/UTC", { cache: "no-store" });
+      const j = await res.json();
+      const ms = new Date(j.utc_datetime).getTime();
+      if (!Number.isFinite(ms)) throw new Error("bad worldtimeapi response");
+      return ms;
+    }
+  ];
+
+  for (const fn of sources) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      const t0 = Date.now();
+      const serverMs = await fn();
+      clearTimeout(timer);
+      // Account for half the round-trip when computing offset.
+      const rtt = Date.now() - t0;
+      timeOffsetMs = serverMs - (Date.now() - rtt / 2);
+      networkSynced = true;
+      updateSyncStatus();
+      return;
+    } catch (_) {
+      // try next source
+    }
+  }
+  networkSynced = false;
+  updateSyncStatus();
+}
+
+function updateSyncStatus() {
+  const el = document.getElementById("sync-status");
+  const text = document.getElementById("sync-text");
+  if (networkSynced) {
+    el.classList.remove("local");
+    text.textContent = "Synced · Pacific Time";
+  } else {
+    el.classList.add("local");
+    text.textContent = "Local clock · Pacific Time";
+  }
+}
+
+/* --------------------------------------------------------------
+   5. SCHEDULE QUERY
+   -------------------------------------------------------------- */
+// Returns { current, next } for the given PT components, or {current:null,next:null}.
+// "next" is the next chronological block today after `current`.
+function findActiveBlocks(pt) {
+  // Filter blocks that apply to this weekday, and sort by start time.
+  const todays = schedule
+    .filter(b => Array.isArray(b.days) && b.days.includes(pt.weekday))
+    .map(b => ({ ...b, _start: hhmmToMin(b.start), _end: hhmmToMin(b.end) }))
+    .sort((a, b) => a._start - b._start);
+
+  let current = null;
+  let next = null;
+  for (let i = 0; i < todays.length; i++) {
+    const b = todays[i];
+    if (pt.minuteOfDay >= b._start && pt.minuteOfDay < b._end) {
+      current = b;
+      next = todays[i + 1] || null;
+      break;
+    }
+  }
+  // If no current block, "next" is just the upcoming block today.
+  if (!current) {
+    next = todays.find(b => b._start > pt.minuteOfDay) || null;
+  }
+  return { current, next };
+}
+
+/* --------------------------------------------------------------
+   6. RENDERING — image cross-fade, title, clock, countdown
+   -------------------------------------------------------------- */
+const imgA = document.getElementById("img-a");
+const imgB = document.getElementById("img-b");
+const noBlockOverlay = document.getElementById("no-block-overlay");
+const blockTitleEl = document.getElementById("block-title");
+const dayLabelEl = document.getElementById("day-label");
+const clockEl = document.getElementById("clock");
+const countdownEl = document.getElementById("countdown");
+const countdownLabelEl = document.getElementById("countdown-label");
+const previewInset = document.getElementById("preview-inset");
+const previewImg = document.getElementById("preview-img");
+const previewTitle = document.getElementById("preview-title");
+
+function setActiveImage(src) {
+  // Swap which <img> is "active" (visible) so the browser cross-fades.
+  // The hidden layer's src is updated; once it loads we toggle classes.
+  const inactive = activeImgEl === imgA ? imgB : imgA;
+  const active = activeImgEl === imgA ? imgA : imgB;
+  if (!activeImgEl) {
+    // First-time init: just set the active layer immediately.
+    imgA.src = src;
+    imgA.classList.add("active");
+    activeImgEl = imgA;
+    return;
+  }
+  if (active.src.endsWith(src)) return; // already showing it
+  inactive.onload = () => {
+    inactive.classList.add("active");
+    active.classList.remove("active");
+    activeImgEl = inactive;
+  };
+  inactive.src = src;
+}
+
+function formatClock(pt) {
+  let h = pt.hour;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  const mm = String(pt.minute).padStart(2, "0");
+  const ss = String(pt.second).padStart(2, "0");
+  return `${h}:${mm}:${ss} ${ampm}`;
+}
+
+function formatCountdown(secondsRemaining) {
+  if (secondsRemaining < 0) secondsRemaining = 0;
+  const m = Math.floor(secondsRemaining / 60);
+  const s = secondsRemaining % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    return `${h}:${String(m % 60).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  }
+  return `${m}:${String(s).padStart(2,"0")}`;
+}
+
+const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+function tick() {
+  const now = getNow();
+  const pt = getPTComponents(now);
+
+  // Always update the clock and weekday label
+  clockEl.textContent = formatClock(pt);
+  dayLabelEl.textContent = DAY_NAMES[pt.weekday];
+
+  const { current, next } = findActiveBlocks(pt);
+
+  if (current) {
+    // Show image + title for current block
+    noBlockOverlay.classList.remove("show");
+    setActiveImage(current.image);
+    blockTitleEl.textContent = current.title;
+    countdownLabelEl.textContent = "Time Remaining";
+
+    // Compute remaining seconds in current block
+    const endSec = current._end * 60;
+    const nowSec = pt.secondOfDay;
+    const remaining = Math.max(0, endSec - nowSec);
+    countdownEl.textContent = formatCountdown(remaining);
+
+    // Hot color in last 60 seconds
+    countdownEl.classList.toggle("hot", remaining <= 60);
+
+    // Block transition: reset chime guard
+    if (current.id !== lastBlockId) {
+      lastBlockId = current.id;
+      // Don't reset chimedForBlockId here — it's keyed by id, so the new
+      // block starts with no chime fired yet, regardless.
+    }
+
+    // 5-minute warning: 0 < remaining <= 300s, AND there is a next block.
+    const inWarningWindow = remaining > 0 && remaining <= 300;
+    if (inWarningWindow && next) {
+      previewImg.src = next.image;
+      previewTitle.textContent = next.title;
+      previewInset.classList.add("show");
+
+      // Fire the chime exactly once per (block instance × day).
+      const chimeKey = `${pt.year}-${pt.month}-${pt.day}-${current.id}`;
+      if (chimedForBlockId !== chimeKey) {
+        chimedForBlockId = chimeKey;
+        playChime();
+      }
+    } else {
+      previewInset.classList.remove("show");
+    }
+
+  } else {
+    // No active block — show "No Active Block" overlay
+    blockTitleEl.textContent = "No Active Block";
+    countdownLabelEl.textContent = next ? "Next Block In" : "Schedule Idle";
+    noBlockOverlay.classList.add("show");
+    previewInset.classList.remove("show");
+    countdownEl.classList.remove("hot");
+    lastBlockId = null;
+
+    if (next) {
+      const startSec = next._start * 60;
+      const nowSec = pt.secondOfDay;
+      const until = Math.max(0, startSec - nowSec);
+      countdownEl.textContent = formatCountdown(until);
+      document.getElementById("no-block-sub").textContent =
+        `${DAY_NAMES[pt.weekday]} · Next: ${next.title} at ${formatTimeLabel(next.start)}`;
+    } else {
+      countdownEl.textContent = "—";
+      document.getElementById("no-block-sub").textContent =
+        `${DAY_NAMES[pt.weekday]} · No more blocks today.`;
+    }
+  }
+}
+
+function formatTimeLabel(hhmm) {
+  const [hh, mm] = hhmm.split(":").map(n => parseInt(n, 10));
+  const ampm = hh >= 12 ? "PM" : "AM";
+  let h = hh % 12; if (h === 0) h = 12;
+  return `${h}:${String(mm).padStart(2,"0")} ${ampm}`;
+}
+
+/* --------------------------------------------------------------
+   7. AUDIO — chime
+   -------------------------------------------------------------- */
+const chime = document.getElementById("chime");
+
+function playChime() {
+  if (!audioPrimed) {
+    // No user gesture yet — show hint to click to enable.
+    document.getElementById("sound-hint").classList.add("show");
+    return;
+  }
+  try {
+    chime.currentTime = 0;
+    const p = chime.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => { /* silent if blocked */ });
+    }
+  } catch (_) { /* ignore */ }
+}
+
+// Prime audio on the first user interaction (click, key, touch).
+function primeAudio() {
+  if (audioPrimed) return;
+  audioPrimed = true;
+  // Quick muted load+pause primes the audio element on iOS/Safari.
+  try {
+    chime.muted = true;
+    chime.play().then(() => {
+      chime.pause();
+      chime.currentTime = 0;
+      chime.muted = false;
+    }).catch(() => { chime.muted = false; });
+  } catch (_) { chime.muted = false; }
+  document.getElementById("sound-hint").classList.remove("show");
+}
+window.addEventListener("pointerdown", primeAudio, { once: true });
+window.addEventListener("keydown", primeAudio, { once: true });
+
+/* --------------------------------------------------------------
+   8. FULLSCREEN
+   -------------------------------------------------------------- */
+document.getElementById("btn-fullscreen").addEventListener("click", async () => {
+  try {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch (err) {
+    console.warn("Fullscreen toggle failed:", err);
+  }
+});
+
+/* --------------------------------------------------------------
+   9. DEVELOPER PANEL
+   -------------------------------------------------------------- */
+const devPanel = document.getElementById("dev-panel");
+const devRowsEl = document.getElementById("dev-rows");
+
+function openDev() {
+  renderDevRows();
+  devPanel.classList.add("show");
+}
+function closeDev() {
+  devPanel.classList.remove("show");
+  // Force a tick so any edits take effect immediately.
+  lastBlockId = null;
+  tick();
+}
+document.getElementById("btn-dev").addEventListener("click", openDev);
+document.getElementById("dev-close").addEventListener("click", closeDev);
+document.getElementById("dev-reset").addEventListener("click", () => {
+  if (confirm("Reset schedule to defaults? Your edits will be lost.")) resetSchedule();
+});
+document.getElementById("dev-add").addEventListener("click", () => {
+  const newBlock = {
+    id: Date.now(),
+    title: "New Block",
+    start: "08:00",
+    end: "08:30",
+    image: AVAILABLE_IMAGES[0],
+    days: [1,2,3,4,5]
+  };
+  schedule.push(newBlock);
+  saveSchedule();
+  renderDevRows();
+});
+// Keyboard toggle: Ctrl+Shift+D
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "d") {
+    e.preventDefault();
+    if (devPanel.classList.contains("show")) closeDev();
+    else openDev();
+  }
+  // ESC closes dev panel
+  if (e.key === "Escape" && devPanel.classList.contains("show")) {
+    closeDev();
+  }
+});
+// Click on backdrop closes the panel
+devPanel.addEventListener("click", (e) => {
+  if (e.target === devPanel) closeDev();
+});
+
+const DAY_LETTERS = ["S","M","T","W","T","F","S"]; // visual order: Sun..Sat
+// We display Mon-Sun in the editor for clarity:
+const EDITOR_DAY_ORDER = [1,2,3,4,5,6,0]; // M T W T F S S
+const EDITOR_DAY_LETTERS = ["M","T","W","T","F","S","S"];
+
+function renderDevRows() {
+  devRowsEl.innerHTML = "";
+  schedule.forEach((block, idx) => {
+    const row = document.createElement("div");
+    row.className = "dev-row";
+    row.draggable = true;
+    row.dataset.idx = idx;
+
+    // 1. Drag handle
+    const handle = document.createElement("div");
+    handle.className = "handle";
+    handle.textContent = "⋮⋮";
+    handle.title = "Drag to reorder";
+    row.appendChild(handle);
+
+    // 2. Title input
+    const titleInp = document.createElement("input");
+    titleInp.type = "text";
+    titleInp.value = block.title;
+    titleInp.addEventListener("input", () => {
+      block.title = titleInp.value;
+      saveSchedule();
+    });
+    row.appendChild(titleInp);
+
+    // 3. Start time input
+    const startInp = document.createElement("input");
+    startInp.type = "time";
+    startInp.value = block.start;
+    startInp.addEventListener("input", () => {
+      block.start = startInp.value || "00:00";
+      saveSchedule();
+    });
+    row.appendChild(startInp);
+
+    // 4. End time input
+    const endInp = document.createElement("input");
+    endInp.type = "time";
+    endInp.value = block.end;
+    endInp.addEventListener("input", () => {
+      block.end = endInp.value || "00:00";
+      saveSchedule();
+    });
+    row.appendChild(endInp);
+
+    // 5. Image dropdown
+    const imgSel = document.createElement("select");
+    AVAILABLE_IMAGES.forEach((src, i) => {
+      const opt = document.createElement("option");
+      opt.value = src;
+      opt.textContent = `Image ${i + 1}`;
+      if (src === block.image) opt.selected = true;
+      imgSel.appendChild(opt);
+    });
+    imgSel.addEventListener("change", () => {
+      block.image = imgSel.value;
+      saveSchedule();
+    });
+    row.appendChild(imgSel);
+
+    // 6. Day-of-week pills (Mon-Sun)
+    const days = document.createElement("div");
+    days.className = "day-pills";
+    EDITOR_DAY_ORDER.forEach((dayNum, i) => {
+      const pill = document.createElement("div");
+      pill.className = "day-pill" + (block.days.includes(dayNum) ? " on" : "");
+      pill.textContent = EDITOR_DAY_LETTERS[i];
+      pill.title = DAY_NAMES[dayNum];
+      pill.addEventListener("click", () => {
+        const set = new Set(block.days);
+        if (set.has(dayNum)) set.delete(dayNum); else set.add(dayNum);
+        block.days = Array.from(set).sort((a,b)=>a-b);
+        saveSchedule();
+        pill.classList.toggle("on");
+      });
+      days.appendChild(pill);
+    });
+    row.appendChild(days);
+
+    // 7. Delete
+    const del = document.createElement("div");
+    del.className = "delete-btn";
+    del.textContent = "✕";
+    del.title = "Delete block";
+    del.addEventListener("click", () => {
+      if (confirm(`Delete "${block.title}"?`)) {
+        schedule.splice(idx, 1);
+        saveSchedule();
+        renderDevRows();
+      }
+    });
+    row.appendChild(del);
+
+    // ---- Drag-and-drop reordering ----
+    row.addEventListener("dragstart", (e) => {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(idx));
+      row.classList.add("dragging");
+    });
+    row.addEventListener("dragend", () => {
+      row.classList.remove("dragging");
+      devRowsEl.querySelectorAll(".dev-row").forEach(r => r.classList.remove("drop-target"));
+    });
+    row.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      devRowsEl.querySelectorAll(".dev-row").forEach(r => r.classList.remove("drop-target"));
+      row.classList.add("drop-target");
+    });
+    row.addEventListener("dragleave", () => {
+      row.classList.remove("drop-target");
+    });
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      const toIdx = parseInt(row.dataset.idx, 10);
+      if (Number.isFinite(fromIdx) && fromIdx !== toIdx) {
+        const [moved] = schedule.splice(fromIdx, 1);
+        schedule.splice(toIdx, 0, moved);
+        saveSchedule();
+        renderDevRows();
+      }
+    });
+
+    devRowsEl.appendChild(row);
+  });
+}
+
+/* --------------------------------------------------------------
+   10. STARTUP
+   -------------------------------------------------------------- */
+function start() {
+  // First render is local-clock-based for instant feel; network sync
+  // refines the offset shortly after.
+  updateSyncStatus();
+  tick();
+  setInterval(tick, 250); // 4Hz keeps the clock smooth without burning CPU
+
+  // Re-sync periodically (every 30 minutes) to correct for clock drift.
+  syncNetworkTime();
+  setInterval(syncNetworkTime, 30 * 60 * 1000);
+}
+start();
+</script>
+</body>
+</html>
