@@ -1276,7 +1276,27 @@ function renderDevRows() {
 }
 
 /* --------------------------------------------------------------
-   10. STARTUP
+   10. SCREEN WAKE LOCK — keep the classroom display lit
+   -------------------------------------------------------------- */
+let wakeLock = null;
+
+async function keepAwake() {
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+  } catch (err) {
+    console.error(`Wake Lock error: ${err.name}, ${err.message}`);
+  }
+}
+
+// The browser drops the lock whenever the tab is hidden (minimised, screen
+// off, switched away), so re-acquire on the way back. This laptop runs
+// unattended all day, so nothing else is going to re-arm it.
+document.addEventListener("visibilitychange", () => {
+  if (wakeLock !== null && document.visibilityState === "visible") keepAwake();
+});
+
+/* --------------------------------------------------------------
+   11. STARTUP
    -------------------------------------------------------------- */
 function start() {
   // Warm the browser cache with every image so block transitions are instant.
@@ -1291,6 +1311,9 @@ function start() {
   // Re-sync periodically (every 30 minutes) to correct for clock drift.
   syncNetworkTime();
   setInterval(syncNetworkTime, 30 * 60 * 1000);
+
+  // Hold the display awake for the school day.
+  keepAwake();
 }
 start();
 </script>
